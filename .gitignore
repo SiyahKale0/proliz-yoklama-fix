@@ -1,0 +1,23 @@
+# APK files (uploaded as GitHub Release)
+*.apk
+*.idsig
+
+# Large binary files
+*.bundle.backup
+*.bundle.patched
+*.bundle.patched2
+index.android.bundle
+
+# JADX
+jadx-1.5.1.zip
+jadx/
+
+# Decompiled source (too large for git)
+proliz_decompiled/
+
+# Keystore
+*.jks
+
+# Misc
+output.txt
+logcat_yoklama.txt
