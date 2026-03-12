@@ -124,17 +124,45 @@ API istekleri AES-CBC ile şifreleniyor:
 
 ### 5.1 Analiz
 
-Login işlemi başarılı olmasına rağmen (`isSuccess: true`), uygulama ana sayfaya yönlendirilmiyordu. Decompile edilmiş JavaScript kodunda navigasyon fonksiyonu incelendiğinde, yanlış bir sayfa indeksine yönlendirme yapıldığı tespit edildi.
+Login işlemi başarılı olmasına rağmen uygulama ana sayfaya yönlendirme yapmıyordu. HAR loglarında token'ın başarıyla alındığı görülmesine rağmen, navigasyon gerçekleşmiyordu. Kullanıcı uygulamayı arka plandan tamamen kapatıp yeniden açtığındaysa (kayıtlı token ile auto-login), ana sayfaya sorunsuz yönleniyordu.
+
+Decompile edilmiş `_fun25754` (student login generator) fonksiyonu incelendiğinde kök neden tespit edildi:
+
+```javascript
+// _fun25754 — Fonksiyon #25754 (generator)
+// bytecodeOffset: 0x4FF32F, bytecodeSize: 645
+
+case 31:  r1 = loginFonksiyonu(loginData);    // API çağrısı (yield)
+case 46:  r1 = <login yanıtı>;                // ResumeGenerator → r1
+
+case 55-119:
+    // Push notification token alınır, sunucuya gönderilir
+    // (r2, r3, r5, r6 kullanılır — r1'e dokunulmaz)
+
+case 128:
+    setLoading(false);                         // loading kapanır
+    if (!r1) goto case_216;                    // ← BUG: r1 falsy ise navigasyon atlanır
+
+case 142:
+    dispatch(StackActions.replace(             // ← navigasyon
+        Routes.STUDENT_TABS_ROOT));
+
+case 216:
+    // academic rol kontrolüne geçer (student akışı sona erer)
+```
+
+**Sorun:** Login fonksiyonu (`_closure2_slot20`) API çağrısını başarıyla yapıp JWT token'ı storage'a kaydediyor, ancak fonksiyonun kendisi falsy bir değer döndürüyordu (muhtemelen `undefined`). Bu nedenle `if(!r1)` koşulu her zaman true olup navigasyon kodunu (case 142) atlayarak case 216'ya (academic rol kontrolü) düşüyordu. Login gerçekte başarılıydı — token storage'a yazılmıştı — ama navigasyon tetiklenmiyordu.
 
 ### 5.2 Patch
 
 ```
 Dosya Offseti:  0x4FF3BB
-Orijinal Byte:  0x4D  (yanlış sayfa indeksi)
-Yeni Byte:      0x03  (doğru ana sayfa indeksi)
+Opcode:         JmpFalse (0x92) — 3 byte: [op] [offset] [cond_reg]
+Orijinal:       0x4D  (jump offset = +77 → case 216, navigasyonu atla)
+Yeni:           0x03  (jump offset = +3  → case 142, navigasyona düş)
 ```
 
-Bu tek byte'lık değişiklik, login sonrası navigasyonu düzeltir.
+Bu tek byte'lık değişiklik, `JmpFalse` instruction'ının atlama mesafesini 77'den 3'e düşürür. Böylece `r1` falsy olsa bile akış case 142'ye (navigasyon) düşer. Login gerçekten başarısız olsaydı, daha önce case 110'daki `request()` çağrısı exception fırlatıp generator'ı durdururdu; case 128'e ulaşılması zaten login'in başarılı olduğu anlamına gelir.
 
 ---
 
